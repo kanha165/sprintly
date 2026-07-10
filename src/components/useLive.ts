@@ -38,7 +38,9 @@ export function useLive(onChange: (event: any) => void) {
 
       return () => {
         active = false;
-        supabaseBrowser.removeChannel(channel);
+        if (supabaseBrowser) {
+          supabaseBrowser.removeChannel(channel);
+        }
       };
     }
 
