@@ -479,7 +479,7 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0d0f14] flex flex-col font-sans transition-colors duration-200">
       
       {/* Top Navbar */}
       <TopBar
@@ -495,11 +495,11 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
       <main className="flex-1 w-full px-4 md:px-6 py-6 flex flex-col gap-6">
         
         {/* Filters Top Section */}
-        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+        <section className="bg-white dark:bg-[#161b27] border border-slate-200 dark:border-slate-700/60 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             {/* Title Search */}
             <div className="relative flex-1 sm:flex-initial">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 dark:text-slate-500">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
@@ -509,17 +509,19 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search tasks..."
-                className="w-full sm:w-64 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600
+                className="w-full sm:w-64
+                  bg-slate-50 dark:bg-[#0d0f14]
+                  border border-slate-200 dark:border-slate-600
                   focus:border-violet-500 dark:focus:border-violet-400
-                  text-slate-700 dark:text-slate-100
-                  placeholder-slate-400 dark:placeholder-slate-500
+                  text-slate-800 dark:text-slate-100
+                  placeholder-slate-400 dark:placeholder-slate-600
                   rounded-xl pl-10 pr-4 py-2 text-sm outline-none transition-all"
               />
             </div>
 
             {/* Assignee Filter Dropdown */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Assignee:</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Assignee:</span>
               <div className="flex gap-1">
                 {allAssignees.map((assignee) => {
                   const isSelected = selectedAssignees.includes(assignee);
@@ -533,8 +535,8 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                       }}
                       className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-violet-600 border-violet-600 text-white dark:bg-violet-500 dark:border-violet-500'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-violet-400 dark:hover:border-violet-500'
+                          ? 'bg-violet-600 border-violet-600 text-white'
+                          : 'bg-white dark:bg-[#0d0f14] border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-violet-400 dark:hover:border-violet-500'
                       }`}
                     >
                       {assignee}
@@ -545,14 +547,13 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-100 dark:border-slate-700/60 pt-3 md:pt-0">
-            {/* Overdue Switch */}
+          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-100 dark:border-slate-700/40 pt-3 md:pt-0">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={overdueOnly}
                 onChange={(e) => setOverdueOnly(e.target.checked)}
-                className="rounded text-violet-600 focus:ring-violet-500 border-slate-300 dark:border-slate-600 w-4 h-4"
+                className="rounded text-violet-600 focus:ring-violet-500 border-slate-300 dark:border-slate-600 w-4 h-4 accent-violet-600"
               />
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Overdue Only</span>
             </label>
@@ -594,9 +595,10 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                 return (
                   <div
                     key={status}
-                    className="flex flex-col bg-slate-100/80 dark:bg-slate-800/60
-                      border border-slate-200/80 dark:border-slate-700/60
-                      rounded-3xl p-4 shadow-sm flex-1 min-h-[500px]"
+                    className="flex flex-col
+                      bg-slate-100/70 dark:bg-[#161b27]
+                      border border-slate-200 dark:border-slate-700/50
+                      rounded-2xl p-4 shadow-sm flex-1 min-h-[500px]"
                   >
                     {/* Header */}
                     <ColumnHeader
@@ -618,10 +620,10 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                       >
                         {list.length === 0 ? (
                           <div className="flex-1 flex items-center justify-center p-6
-                            border-2 border-dashed border-slate-300 dark:border-slate-600
-                            rounded-2xl text-center">
-                            <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                              {isColumnLocked ? 'Done column locked 🔒' : 'Drop cards here'}
+                            border-2 border-dashed border-slate-300 dark:border-slate-600/60
+                            rounded-xl text-center">
+                            <span className="text-xs font-medium text-slate-400 dark:text-slate-600">
+                              {isColumnLocked ? '🔒 Done column locked' : 'Drop cards here'}
                             </span>
                           </div>
                         ) : (
