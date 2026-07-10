@@ -22,7 +22,7 @@ A modern, collaborative sprint board with real-time updates, built with Next.js 
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/kanha165/sprintly
 cd ai_agent
 npm install
 ```
