@@ -283,19 +283,19 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
       }
     }
 
-    // --- WIP Limit Checks (Excluding same column reordering) ---
+    // --- WIP Limit Checks (cross-column moves only) ---
     if (fromStatus !== toStatus) {
       if (toStatus === 'In Progress') {
-        const inProgressCount = tasks.filter((t) => t.status === 'In Progress').length;
-        if (inProgressCount >= 5) {
-          triggerToast('WIP Limit Exceeded: In Progress cannot exceed 5 cards.', 'error');
+        const currentCount = tasks.filter((t) => t.status === 'In Progress').length;
+        if (currentCount >= 8) {
+          triggerToast('WIP Limit Exceeded: In Progress cannot exceed 8 cards.', 'error');
           return;
         }
       }
       if (toStatus === 'Review') {
-        const reviewCount = tasks.filter((t) => t.status === 'Review').length;
-        if (reviewCount >= 3) {
-          triggerToast('WIP Limit Exceeded: Review cannot exceed 3 cards.', 'error');
+        const currentCount = tasks.filter((t) => t.status === 'Review').length;
+        if (currentCount >= 6) {
+          triggerToast('WIP Limit Exceeded: Review cannot exceed 6 cards.', 'error');
           return;
         }
       }
@@ -492,10 +492,10 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-6 py-6 flex flex-col gap-6">
+      <main className="flex-1 w-full px-4 md:px-6 py-6 flex flex-col gap-6">
         
         {/* Filters Top Section */}
-        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 md:p-6 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             {/* Title Search */}
             <div className="relative flex-1 sm:flex-initial">
@@ -509,7 +509,11 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search tasks..."
-                className="w-full sm:w-64 bg-slate-50 border border-slate-200 focus:border-violet-500 dark:bg-slate-950 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm outline-none transition-all"
+                className="w-full sm:w-64 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600
+                  focus:border-violet-500 dark:focus:border-violet-400
+                  text-slate-700 dark:text-slate-100
+                  placeholder-slate-400 dark:placeholder-slate-500
+                  rounded-xl pl-10 pr-4 py-2 text-sm outline-none transition-all"
               />
             </div>
 
@@ -529,8 +533,8 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                       }}
                       className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-violet-600 border-violet-600 text-white'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                          ? 'bg-violet-600 border-violet-600 text-white dark:bg-violet-500 dark:border-violet-500'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-violet-400 dark:hover:border-violet-500'
                       }`}
                     >
                       {assignee}
@@ -541,16 +545,16 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-100 dark:border-slate-800/60 pt-3 md:pt-0">
+          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-100 dark:border-slate-700/60 pt-3 md:pt-0">
             {/* Overdue Switch */}
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={overdueOnly}
                 onChange={(e) => setOverdueOnly(e.target.checked)}
-                className="rounded text-violet-600 focus:ring-violet-500 border-slate-300 w-4 h-4"
+                className="rounded text-violet-600 focus:ring-violet-500 border-slate-300 dark:border-slate-600 w-4 h-4"
               />
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Overdue Only</span>
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Overdue Only</span>
             </label>
 
             {/* Create Task Button (Disabled for Members) */}
@@ -590,7 +594,9 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                 return (
                   <div
                     key={status}
-                    className="flex flex-col bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/50 rounded-3xl p-4 shadow-sm flex-1 min-h-[500px]"
+                    className="flex flex-col bg-slate-100/80 dark:bg-slate-800/60
+                      border border-slate-200/80 dark:border-slate-700/60
+                      rounded-3xl p-4 shadow-sm flex-1 min-h-[500px]"
                   >
                     {/* Header */}
                     <ColumnHeader
@@ -611,9 +617,11 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
                         className="flex flex-col gap-3 mt-4 flex-1 min-h-[400px]"
                       >
                         {list.length === 0 ? (
-                          <div className="flex-1 flex items-center justify-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-center">
-                            <span className="text-xs text-slate-400">
-                              {isColumnLocked ? 'Done column locked 🔒' : 'Empty. Drop cards here.'}
+                          <div className="flex-1 flex items-center justify-center p-6
+                            border-2 border-dashed border-slate-300 dark:border-slate-600
+                            rounded-2xl text-center">
+                            <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                              {isColumnLocked ? 'Done column locked 🔒' : 'Drop cards here'}
                             </span>
                           </div>
                         ) : (
@@ -634,25 +642,28 @@ export default function BoardClient({ currentUser }: BoardClientProps) {
               })}
             </div>
 
-            {/* Custom drag overlay to represent card visually during drags */}
             <DragOverlay dropAnimation={null}>
               {activeTask ? (
-                <div className="bg-white dark:bg-slate-900 border border-violet-500 rounded-2xl p-4 shadow-2xl opacity-90 cursor-grabbing text-left scale-105 transition-transform duration-100">
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-2">
-                      {activeTask.title}
-                    </h4>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mb-3">
+                <div className="bg-white dark:bg-slate-800 border-2 border-violet-500
+                  rounded-2xl p-4 shadow-2xl cursor-grabbing scale-105">
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-50 line-clamp-2 mb-2">
+                    {activeTask.title}
+                  </h4>
+                  <div className="flex flex-wrap gap-1 mb-2">
                     {activeTask.labels?.map((lbl) => (
-                      <span key={lbl} className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
+                      <span key={lbl} className="px-2 py-0.5 rounded text-[10px] font-bold
+                        bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                         {lbl}
                       </span>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="flex items-center justify-between text-[11px]
+                    text-slate-500 dark:text-slate-400">
                     <span className="font-semibold">{activeTask.assignee}</span>
-                    <span className="font-semibold">{activeTask.estimate_hours}h</span>
+                    <span className="font-bold px-1.5 py-0.5 rounded
+                      bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                      {activeTask.estimate_hours}h
+                    </span>
                   </div>
                 </div>
               ) : null}
