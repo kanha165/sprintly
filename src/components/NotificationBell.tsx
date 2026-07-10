@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { JWTPayload, ActivityLog } from '@/lib/types';
-import { ToastMessage } from './Toast';
 
 interface NotificationBellProps {
   currentUser: JWTPayload;
@@ -13,15 +12,17 @@ export default function NotificationBell({ currentUser, triggerToast }: Notifica
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
-  const [lastSeen, setLastSeen] = useState<string>('');
-  
-  const initialFetchRef = useRef(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on clicking outside
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  // Store latest activities in a ref so the interval closure is never stale
+  // without needing activities in the dependency array (which caused the loop)
+  const activitiesRef = useRef<ActivityLog[]>([]);
+  activitiesRef.current = activities;
+
+  // Close on outside click
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
@@ -29,99 +30,71 @@ export default function NotificationBell({ currentUser, triggerToast }: Notifica
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch activities and process toasts
-  const fetchActivities = async (isPoll: boolean) => {
+  const fetchActivities = useCallback(async (isPoll: boolean) => {
     try {
-      const response = await fetch('/api/activity');
-      if (!response.ok) return;
-      const result = await response.json();
+      const res = await fetch('/api/activity');
+      if (!res.ok) return;
+      const result = await res.json();
       if (!result.ok || !result.data) return;
 
-      const newActivities: ActivityLog[] = result.data;
+      const fresh: ActivityLog[] = result.data;
 
-      // Handle new activity toasts (Only on subsequent polls, not the very first mount fetch)
-      if (isPoll && activities.length > 0) {
-        // Find activities that aren't in our previous state
-        const existingIds = new Set(activities.map(a => a.id));
-        const unseen = newActivities.filter(a => !existingIds.has(a.id));
-
-        for (const act of unseen) {
-          // Rule: Own actions and reorders are not toasted
-          if (act.user_id === currentUser.userId || act.action === 'reordered') {
-            continue;
-          }
+      // Toast new activity from other users (polls only, not first load)
+      if (isPoll && activitiesRef.current.length > 0) {
+        const existingIds = new Set(activitiesRef.current.map((a) => a.id));
+        for (const act of fresh) {
+          if (existingIds.has(act.id)) continue;
+          if (act.user_id === currentUser.userId || act.action === 'reordered') continue;
 
           const userName = act.user?.name || 'Someone';
           const taskTitle = act.task?.title || 'a task';
 
-          let toastText = '';
-          if (act.action === 'created') {
-            toastText = `${userName} created task "${taskTitle}"`;
-          } else if (act.action === 'moved') {
-            toastText = `${userName} moved "${taskTitle}" to ${act.to_status}`;
-          } else if (act.action === 'completed') {
-            toastText = `${userName} completed task "${taskTitle}"`;
-          } else if (act.action === 'deleted') {
-            toastText = `${userName} deleted a task`;
-          } else if (act.action === 'assigned') {
-            const assignee = act.to_status;
-            if (assignee === currentUser.name) {
-              // Highlighted toast when assigned to current user
-              triggerToast(`Task "${taskTitle}" was assigned to you!`, 'success');
-              continue;
-            } else {
-              toastText = `${userName} assigned "${taskTitle}" to ${assignee}`;
-            }
-          } else if (act.action === 'unassigned') {
-            toastText = `${userName} unassigned "${taskTitle}"`;
-          } else if (act.action === 'imported') {
-            toastText = `Seed tasks imported to the board`;
-          } else if (act.action === 'reset') {
-            toastText = `Board reset to initial data`;
+          if (act.action === 'assigned' && act.to_status === currentUser.name) {
+            triggerToast(`Task "${taskTitle}" was assigned to you!`, 'success');
+            continue;
           }
 
-          if (toastText) {
-            triggerToast(toastText, 'info');
-          }
+          const messages: Record<string, string> = {
+            created:  `${userName} created "${taskTitle}"`,
+            moved:    `${userName} moved "${taskTitle}" → ${act.to_status}`,
+            completed:`${userName} completed "${taskTitle}"`,
+            deleted:  `${userName} deleted a task`,
+            assigned: `${userName} assigned "${taskTitle}" to ${act.to_status}`,
+            unassigned:`${userName} unassigned "${taskTitle}"`,
+            imported: `Seed tasks imported to the board`,
+            reset:    `Board was reset to initial data`,
+          };
+          const text = messages[act.action] || `${userName} ${act.action} "${taskTitle}"`;
+          triggerToast(text, 'info');
         }
       }
 
-      setActivities(newActivities);
-      
-      // Calculate unread count
-      const lsTime = localStorage.getItem(`lastSeen_${currentUser.userId}`) || '';
-      setLastSeen(lsTime);
-      
-      if (!lsTime) {
-        setUnreadCount(newActivities.length);
-      } else {
-        const count = newActivities.filter(a => a.created_at && a.created_at > lsTime).length;
-        setUnreadCount(count);
-      }
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    }
-  };
+      setActivities(fresh);
 
-  // Initial load
+      // Unread badge
+      const lsTime = localStorage.getItem(`lastSeen_${currentUser.userId}`) || '';
+      const count = lsTime
+        ? fresh.filter((a) => a.created_at && a.created_at > lsTime).length
+        : fresh.length;
+      setUnreadCount(count);
+    } catch {
+      // Silently swallow — network errors during polling should not spam console
+    }
+  }, [currentUser.userId, currentUser.name, triggerToast]);
+
+  // Initial load + poll every 30s
+  // NOTE: activities is NOT in deps — we use activitiesRef for stale-closure safety
   useEffect(() => {
     fetchActivities(false);
-    
-    // Poll every 5 seconds as a robust fallback
-    const interval = setInterval(() => {
-      fetchActivities(true);
-    }, 5000);
-
+    const interval = setInterval(() => fetchActivities(true), 30_000);
     return () => clearInterval(interval);
-  }, [activities, currentUser]);
+  }, [fetchActivities]);
 
   const toggleDropdown = () => {
-    setIsOpen(!isOpen);
+    setIsOpen((prev) => !prev);
     if (!isOpen) {
-      // Mark all as read
-      const nowStr = new Date().toISOString();
-      localStorage.setItem(`lastSeen_${currentUser.userId}`, nowStr);
-      setLastSeen(nowStr);
+      const now = new Date().toISOString();
+      localStorage.setItem(`lastSeen_${currentUser.userId}`, now);
       setUnreadCount(0);
     }
   };
@@ -129,45 +102,28 @@ export default function NotificationBell({ currentUser, triggerToast }: Notifica
   const getActionText = (act: ActivityLog) => {
     const userName = act.user?.name || 'Someone';
     const taskTitle = act.task?.title || 'deleted task';
-    const isAssignedToMe = act.action === 'assigned' && act.to_status === currentUser.name;
+    const isMe = act.action === 'assigned' && act.to_status === currentUser.name;
 
-    let message = '';
-    switch (act.action) {
-      case 'created':
-        message = `created task "${taskTitle}"`;
-        break;
-      case 'moved':
-        message = `moved "${taskTitle}" from ${act.from_status || 'column'} to ${act.to_status}`;
-        break;
-      case 'completed':
-        message = `completed task "${taskTitle}"`;
-        break;
-      case 'deleted':
-        message = `deleted a task`;
-        break;
-      case 'assigned':
-        message = `assigned "${taskTitle}" to ${act.to_status || 'Unassigned'}`;
-        break;
-      case 'unassigned':
-        message = `unassigned "${taskTitle}" (previously assigned to ${act.from_status})`;
-        break;
-      case 'imported':
-        message = `imported the task board`;
-        break;
-      case 'reset':
-        message = `reset the task board`;
-        break;
-      default:
-        message = `${act.action} "${taskTitle}"`;
-    }
+    const messages: Record<string, string> = {
+      created:   `created "${taskTitle}"`,
+      moved:     `moved "${taskTitle}" → ${act.to_status}`,
+      reordered: `reordered tasks`,
+      completed: `completed "${taskTitle}"`,
+      deleted:   `deleted a task`,
+      assigned:  `assigned "${taskTitle}" to ${act.to_status || 'Unassigned'}`,
+      unassigned:`unassigned "${taskTitle}"`,
+      imported:  `imported the task board`,
+      reset:     `reset the task board`,
+    };
+    const msg = messages[act.action] || `${act.action} "${taskTitle}"`;
 
     return (
       <div className="text-xs">
-        <span className="font-semibold text-slate-800 dark:text-slate-200">{userName}</span>{' '}
-        <span className="text-slate-600 dark:text-slate-400">{message}</span>
-        {isAssignedToMe && (
-          <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-            · you
+        <span className="font-semibold text-slate-800 dark:text-slate-100">{userName}</span>{' '}
+        <span className="text-slate-500 dark:text-slate-400">{msg}</span>
+        {isMe && (
+          <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+            you
           </span>
         )}
       </div>
@@ -176,48 +132,49 @@ export default function NotificationBell({ currentUser, triggerToast }: Notifica
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Bell Button */}
+      {/* Bell button */}
       <button
         onClick={toggleDropdown}
         type="button"
-        className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center cursor-pointer hover:border-violet-500 hover:text-violet-500 transition-all duration-200 relative active:scale-95"
+        className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700
+          flex items-center justify-center cursor-pointer text-slate-600 dark:text-slate-300
+          hover:border-violet-500 hover:text-violet-500 dark:hover:border-violet-400 dark:hover:text-violet-400
+          transition-all duration-200 relative active:scale-95"
       >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-          />
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        {/* Unread Count Badge */}
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white dark:border-slate-950 animate-bounce">
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white dark:border-slate-950">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Notifications Dropdown */}
+      {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2.5 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-fade-in">
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Activity & Alerts</h3>
-            <span className="text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300 font-semibold px-2 py-0.5 rounded-full">
+        <div className="absolute right-0 mt-2.5 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden">
+          {/* Header */}
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Activity</h3>
+            <span className="text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300 font-semibold px-2 py-0.5 rounded-full">
               Live
             </span>
           </div>
 
-          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80">
+          {/* List */}
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
             {activities.length === 0 ? (
-              <div className="px-4 py-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                No recent activity to show
+              <div className="px-4 py-8 text-center text-xs text-slate-400">
+                No recent activity
               </div>
             ) : (
-              activities.slice(0, 10).map((act) => (
-                <div key={act.id} className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+              activities.slice(0, 15).map((act) => (
+                <div key={act.id}
+                  className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   {getActionText(act)}
-                  <span className="text-[9px] text-slate-400 mt-1 block">
+                  <span className="text-[9px] text-slate-400 mt-0.5 block">
                     {act.created_at ? new Date(act.created_at).toLocaleTimeString() : ''}
                   </span>
                 </div>
