@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signJWT } from '@/lib/jwt';
 import { ok, fail, guard } from '@/lib/response';
 
@@ -12,6 +12,14 @@ const loginSchema = z.object({
 });
 
 export const POST = guard(async (req: NextRequest) => {
+  // Check if Supabase is configured
+  if (!isSupabaseConfigured) {
+    return fail(
+      503,
+      'Database not configured. Please set up Supabase credentials in .env.local file. See README.md for instructions.'
+    );
+  }
+
   const body = await req.json();
 
   // Validate inputs
@@ -29,7 +37,17 @@ export const POST = guard(async (req: NextRequest) => {
     .eq('email', email.toLowerCase().trim())
     .maybeSingle();
 
-  if (error || !user) {
+  if (error) {
+    console.error('Login DB error:', error);
+    
+    if (error.message?.includes('fetch') || error.message?.includes('network')) {
+      return fail(503, 'Unable to connect to database. Please check your Supabase configuration.');
+    }
+    
+    return fail(500, 'An unexpected error occurred. Please try again.');
+  }
+
+  if (!user) {
     return fail(401, 'Invalid email or password');
   }
 

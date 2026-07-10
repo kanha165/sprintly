@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signJWT } from '@/lib/jwt';
 import { ok, fail, guard } from '@/lib/response';
 
@@ -13,6 +13,14 @@ const signupSchema = z.object({
 });
 
 export const POST = guard(async (req: NextRequest) => {
+  // Check if Supabase is configured
+  if (!isSupabaseConfigured) {
+    return fail(
+      503,
+      'Database not configured. Please set up Supabase credentials in .env.local file. See README.md for instructions.'
+    );
+  }
+
   const body = await req.json();
 
   // Validate request body
@@ -41,10 +49,18 @@ export const POST = guard(async (req: NextRequest) => {
     .single();
 
   if (error) {
+    console.error('Signup error:', error);
+    
     // Unique key violation code in Postgres is 23505
     if (error.code === '23505') {
       return fail(409, 'Email address is already registered');
     }
+    
+    // Check for connection errors
+    if (error.message?.includes('fetch') || error.message?.includes('network')) {
+      return fail(503, 'Unable to connect to database. Please check your Supabase configuration.');
+    }
+    
     return fail(400, error.message || 'Signup failed');
   }
 
