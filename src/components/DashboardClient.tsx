@@ -5,204 +5,143 @@ import { JWTPayload } from '@/lib/types';
 import TopBar from './TopBar';
 import ToastContainer, { ToastMessage } from './Toast';
 
-interface DashboardClientProps {
-  currentUser: JWTPayload;
-}
-
-interface StatusDistribution {
-  status: string;
-  count: number;
-}
-
-interface AssigneeDistribution {
-  assignee: string;
-  hours: number;
-}
-
+interface DashboardClientProps { currentUser: JWTPayload; }
+interface StatusDist { status: string; count: number; }
+interface AssigneeDist { assignee: string; hours: number; }
 interface StatsData {
-  statusDistribution: StatusDistribution[];
-  assigneeDistribution: AssigneeDistribution[];
+  statusDistribution: StatusDist[];
+  assigneeDistribution: AssigneeDist[];
   completedThisWeekHours: number;
 }
 
-/* ─────────────────────────────────────────
-   Animated counter hook
-───────────────────────────────────────── */
-function useCountUp(target: number, duration = 1200) {
-  const [value, setValue] = useState(0);
+/* ── Animated count-up ── */
+function useCountUp(target: number, ms = 1400) {
+  const [v, setV] = useState(0);
   useEffect(() => {
-    if (target === 0) return;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-      setValue(Math.round(ease * target));
-      if (progress < 1) requestAnimationFrame(tick);
+    if (!target) return;
+    const t0 = performance.now();
+    const raf = (now: number) => {
+      const p = Math.min((now - t0) / ms, 1);
+      const e = 1 - Math.pow(1 - p, 4);
+      setV(Math.round(e * target));
+      if (p < 1) requestAnimationFrame(raf);
     };
-    requestAnimationFrame(tick);
-  }, [target, duration]);
-  return value;
+    requestAnimationFrame(raf);
+  }, [target]);
+  return v;
 }
 
-/* ─────────────────────────────────────────
-   SVG Donut Chart (pure, no lib)
-───────────────────────────────────────── */
-interface DonutSlice {
-  label: string;
-  value: number;
-  color: string;
-  darkColor: string;
-}
+/* ── Status colours ── */
+const S: Record<string, { hex: string; from: string; to: string; glow: string }> = {
+  'Backlog':     { hex: '#94a3b8', from: '#94a3b8', to: '#64748b', glow: '148,163,184' },
+  'In Progress': { hex: '#3b82f6', from: '#3b82f6', to: '#6366f1', glow: '59,130,246' },
+  'Review':      { hex: '#f59e0b', from: '#f59e0b', to: '#f97316', glow: '245,158,11' },
+  'Done':        { hex: '#10b981', from: '#10b981', to: '#06b6d4', glow: '16,185,129' },
+};
 
-function DonutChart({ slices, size = 200 }: { slices: DonutSlice[]; size?: number }) {
-  const [hovered, setHovered] = useState<number | null>(null);
-  const [animated, setAnimated] = useState(false);
-  const r = 70;
-  const cx = size / 2;
-  const cy = size / 2;
-  const circumference = 2 * Math.PI * r;
-  const total = slices.reduce((s, sl) => s + sl.value, 0);
+const AG = [
+  { from: '#8b5cf6', to: '#6366f1', glow: '139,92,246' },
+  { from: '#ec4899', to: '#f43f5e', glow: '236,72,153' },
+  { from: '#3b82f6', to: '#06b6d4', glow: '59,130,246' },
+  { from: '#10b981', to: '#84cc16', glow: '16,185,129' },
+  { from: '#f59e0b', to: '#f97316', glow: '245,158,11' },
+  { from: '#a78bfa', to: '#818cf8', glow: '167,139,250' },
+];
 
-  useEffect(() => {
-    const t = setTimeout(() => setAnimated(true), 100);
-    return () => clearTimeout(t);
-  }, []);
+/* ── Donut (SVG pie, no lib) ── */
+function Donut({ slices, size = 220 }: { slices: { label: string; value: number; color: string }[]; size?: number }) {
+  const [hov, setHov] = useState<number | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setReady(true), 80); return () => clearTimeout(t); }, []);
 
-  let cumulativeAngle = -90; // start from top
+  const R = 80, cx = size / 2, cy = size / 2;
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  let angle = -90;
 
-  const paths = slices.map((slice, i) => {
-    const angle = (slice.value / total) * 360;
-    const startAngle = cumulativeAngle;
-    const endAngle = cumulativeAngle + angle;
-    cumulativeAngle += angle;
-
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const x1 = cx + r * Math.cos(toRad(startAngle));
-    const y1 = cy + r * Math.sin(toRad(startAngle));
-    const x2 = cx + r * Math.cos(toRad(endAngle));
-    const y2 = cy + r * Math.sin(toRad(endAngle));
-    const largeArc = angle > 180 ? 1 : 0;
-
-    const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
-    const scale = hovered === i ? 1.06 : 1;
-    const midAngle = startAngle + angle / 2;
-    const tx = cx + (r * 0.3) * Math.cos(toRad(midAngle));
-    const ty = cy + (r * 0.3) * Math.sin(toRad(midAngle));
-
+  const paths = slices.map((sl, i) => {
+    const deg = (sl.value / total) * 360;
+    const a1 = angle, a2 = angle + deg;
+    angle += deg;
+    const r2d = (d: number) => (d * Math.PI) / 180;
+    const x1 = cx + R * Math.cos(r2d(a1)), y1 = cy + R * Math.sin(r2d(a1));
+    const x2 = cx + R * Math.cos(r2d(a2)), y2 = cy + R * Math.sin(r2d(a2));
+    const large = deg > 180 ? 1 : 0;
+    const d = `M${cx},${cy} L${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2} Z`;
+    const mid = a1 + deg / 2;
+    const ox = Math.cos(r2d(mid)) * 6, oy = Math.sin(r2d(mid)) * 6;
     return (
-      <path
-        key={slice.label}
-        d={d}
-        fill={slice.color}
-        className="transition-all duration-300 cursor-pointer dark:fill-current"
+      <path key={sl.label} d={d}
+        fill={sl.color}
         style={{
-          transform: `translate(${cx}px,${cy}px) scale(${scale}) translate(${-cx}px,${-cy}px)`,
-          transformOrigin: `${tx}px ${ty}px`,
-          opacity: animated ? 1 : 0,
-          transition: `opacity 0.6s ease ${i * 0.12}s, transform 0.2s ease`,
-          fill: slice.color,
+          transform: hov === i ? `translate(${ox}px,${oy}px)` : 'none',
+          opacity: ready ? 1 : 0,
+          transition: `opacity .5s ease ${i * .1}s, transform .2s ease, filter .2s ease`,
+          filter: hov === i ? `drop-shadow(0 0 8px ${sl.color}88)` : 'none',
+          cursor: 'pointer',
         }}
-        onMouseEnter={() => setHovered(i)}
-        onMouseLeave={() => setHovered(null)}
+        onMouseEnter={() => setHov(i)}
+        onMouseLeave={() => setHov(null)}
       />
     );
   });
 
-  const hoveredSlice = hovered !== null ? slices[hovered] : null;
+  const hs = hov !== null ? slices[hov] : null;
 
   return (
-    <div className="relative flex items-center justify-center">
-      <svg width={size} height={size} className="drop-shadow-lg">
-        {/* background circle */}
-        <circle cx={cx} cy={cy} r={r + 2} fill="transparent"
-          className="stroke-slate-100 dark:stroke-slate-800" strokeWidth={2} />
-        {paths}
-        {/* centre hole */}
-        <circle cx={cx} cy={cy} r={r * 0.52}
-          className="fill-white dark:fill-slate-950" />
-        {/* centre label */}
-        <text x={cx} y={cy - 10} textAnchor="middle"
-          className="fill-slate-800 dark:fill-slate-100"
-          style={{ fontSize: 22, fontWeight: 800, fill: hoveredSlice ? hoveredSlice.color : undefined }}>
-          {hoveredSlice ? hoveredSlice.value : total}
-        </text>
-        <text x={cx} y={cy + 12} textAnchor="middle"
-          style={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }}>
-          {hoveredSlice ? hoveredSlice.label : 'Total'}
-        </text>
-      </svg>
+    <svg width={size} height={size} className="overflow-visible">
+      {paths}
+      {/* hole */}
+      <circle cx={cx} cy={cy} r={R * 0.5}
+        className="fill-white dark:fill-[#161b27]" />
+      {/* centre text */}
+      <text x={cx} y={cy - 8} textAnchor="middle" fontWeight={800} fontSize={24}
+        fill={hs ? hs.color : '#6366f1'}>
+        {hs ? hs.value : total}
+      </text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fontWeight={600} fontSize={11}
+        fill="#94a3b8">
+        {hs ? hs.label : 'Total'}
+      </text>
+    </svg>
+  );
+}
+
+/* ── Animated bar ── */
+function Bar({ pct, from, to, delay = 0 }: { pct: number; from: string; to: string; delay?: number }) {
+  const [w, setW] = useState(0);
+  useEffect(() => { const t = setTimeout(() => setW(pct), 120 + delay); return () => clearTimeout(t); }, [pct]);
+  return (
+    <div className="w-full h-2.5 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700/50">
+      <div className="h-full rounded-full transition-all duration-700 ease-out"
+        style={{ width: `${w}%`, background: `linear-gradient(90deg,${from},${to})` }} />
     </div>
   );
 }
 
-/* ─────────────────────────────────────────
-   Animated bar row
-───────────────────────────────────────── */
-function AnimatedBar({
-  label, value, max, color, gradientFrom, gradientTo, sublabel,
-}: {
-  label: string; value: number; max: number;
-  color: string; gradientFrom: string; gradientTo: string; sublabel?: string;
-}) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
-  const [width, setWidth] = useState(0);
-
-  useEffect(() => {
-    const t = setTimeout(() => setWidth(pct), 120);
-    return () => clearTimeout(t);
-  }, [pct]);
-
+/* ── Stat card with glassmorphism ── */
+function StatCard({ label, value, suffix = '', icon, from, to, glow }:
+  { label: string; value: number; suffix?: string; icon: React.ReactNode; from: string; to: string; glow: string }) {
+  const n = useCountUp(value);
   return (
-    <div className="group">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full shrink-0`} style={{ background: gradientFrom }} />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{label}</span>
-          {sublabel && (
-            <span className="text-[10px] font-semibold text-slate-400 hidden sm:inline">{sublabel}</span>
-          )}
-        </div>
-        <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">{value}</span>
-      </div>
-      <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-700 ease-out"
-          style={{
-            width: `${width}%`,
-            background: `linear-gradient(90deg, ${gradientFrom}, ${gradientTo})`,
-          }}
-        />
-      </div>
-    </div>
-  );
-}
+    <div className="relative overflow-hidden rounded-2xl p-5 text-white"
+      style={{
+        background: `linear-gradient(135deg, ${from}, ${to})`,
+        boxShadow: `0 8px 32px -4px rgba(${glow},.35)`,
+      }}>
+      {/* glass shimmer */}
+      <div className="absolute inset-0 opacity-10"
+        style={{ background: 'linear-gradient(135deg,rgba(255,255,255,.4) 0%,transparent 60%)' }} />
+      <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full opacity-[.12] bg-white" />
+      <div className="absolute -right-3 -bottom-8 w-20 h-20 rounded-full opacity-[.08] bg-white" />
 
-/* ─────────────────────────────────────────
-   Stat card
-───────────────────────────────────────── */
-function StatCard({
-  label, value, icon, gradientFrom, gradientTo, suffix = '',
-}: {
-  label: string; value: number; icon: React.ReactNode;
-  gradientFrom: string; gradientTo: string; suffix?: string;
-}) {
-  const display = useCountUp(value);
-  return (
-    <div className="relative overflow-hidden rounded-2xl p-5 text-white shadow-lg"
-      style={{ background: `linear-gradient(135deg, ${gradientFrom}, ${gradientTo})` }}>
-      {/* decorative circle */}
-      <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-20"
-        style={{ background: 'rgba(255,255,255,0.4)' }} />
-      <div className="absolute -right-2 -bottom-6 w-16 h-16 rounded-full opacity-10"
-        style={{ background: 'rgba(255,255,255,0.6)' }} />
-      <div className="relative z-10 flex items-start justify-between">
+      <div className="relative flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">{label}</p>
-          <p className="text-4xl font-extrabold leading-none">
-            {display}{suffix}
+          <p className="text-[11px] font-bold uppercase tracking-widest opacity-75 mb-2">{label}</p>
+          <p className="text-4xl font-black leading-none tabular-nums">
+            {n}<span className="text-xl font-semibold opacity-70 ml-0.5">{suffix}</span>
           </p>
         </div>
-        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+        <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
           {icon}
         </div>
       </div>
@@ -210,342 +149,268 @@ function StatCard({
   );
 }
 
-/* ─────────────────────────────────────────
-   Status config
-───────────────────────────────────────── */
-const STATUS_CONFIG: Record<string, { color: string; from: string; to: string }> = {
-  'Backlog':     { color: '#94a3b8', from: '#94a3b8', to: '#64748b' },
-  'In Progress': { color: '#3b82f6', from: '#3b82f6', to: '#6366f1' },
-  'Review':      { color: '#f59e0b', from: '#f59e0b', to: '#f97316' },
-  'Done':        { color: '#10b981', from: '#10b981', to: '#06b6d4' },
-};
+/* ── Ring ── */
+function Ring({ pct, size = 100 }: { pct: number; size?: number }) {
+  const r = 38, c = 2 * Math.PI * r;
+  const [dash, setDash] = useState(c);
+  useEffect(() => { const t = setTimeout(() => setDash(c * (1 - pct / 100)), 200); return () => clearTimeout(t); }, [pct]);
+  return (
+    <svg width={size} height={size}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,.15)" strokeWidth={10} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="white" strokeWidth={10}
+        strokeLinecap="round" strokeDasharray={c} strokeDashoffset={dash}
+        transform={`rotate(-90 ${size/2} ${size/2})`}
+        style={{ transition: 'stroke-dashoffset 1.4s cubic-bezier(.4,0,.2,1)' }} />
+      <text x={size/2} y={size/2+6} textAnchor="middle" fill="white" fontWeight={800} fontSize={15}>
+        {pct}%
+      </text>
+    </svg>
+  );
+}
 
-const ASSIGNEE_GRADIENTS = [
-  { from: '#8b5cf6', to: '#6366f1' },
-  { from: '#ec4899', to: '#f43f5e' },
-  { from: '#3b82f6', to: '#06b6d4' },
-  { from: '#10b981', to: '#84cc16' },
-  { from: '#f59e0b', to: '#f97316' },
-  { from: '#a78bfa', to: '#818cf8' },
-];
-
-/* ─────────────────────────────────────────
+/* ════════════════════════════════════════
    Main component
-───────────────────────────────────────── */
+════════════════════════════════════════ */
 export default function DashboardClient({ currentUser }: DashboardClientProps) {
-  const [stats, setStats] = useState<StatsData | null>(null);
+  const [stats, setStats]   = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [issuesFixed, setIssuesFixed] = useState(13);
-  const [tasksLoaded, setTasksLoaded] = useState(37);
+  const [toasts, setToasts]  = useState<ToastMessage[]>([]);
+  const [issuesFixed, setIssuesFixed]   = useState(13);
+  const [tasksLoaded, setTasksLoaded]   = useState(37);
 
-  const triggerToast = (text: string, type: 'success' | 'error' | 'info') => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, text, type }]);
-  };
-
-  const handleCloseToast = (id: string) =>
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const toast = (text: string, type: 'success' | 'error' | 'info') =>
+    setToasts(p => [...p, { id: Math.random().toString(36).slice(2), text, type }]);
 
   useEffect(() => {
-    fetch('/api/stats')
-      .then((r) => r.json())
-      .then((res) => { if (res.ok) setStats(res.data); })
-      .catch((e) => triggerToast(e.message, 'error'))
+    fetch('/api/stats').then(r => r.json())
+      .then(r => { if (r.ok) setStats(r.data); })
+      .catch(e => toast(e.message, 'error'))
       .finally(() => setLoading(false));
-
-    const fixed = localStorage.getItem('issuesFixed');
-    const loaded = localStorage.getItem('tasksLoaded');
-    if (fixed) setIssuesFixed(parseInt(fixed, 10));
-    if (loaded) setTasksLoaded(parseInt(loaded, 10));
+    const f = localStorage.getItem('issuesFixed');
+    const l = localStorage.getItem('tasksLoaded');
+    if (f) setIssuesFixed(+f);
+    if (l) setTasksLoaded(+l);
   }, []);
 
-  /* derived */
-  const totalTasks = stats?.statusDistribution.reduce((s, x) => s + x.count, 0) ?? 0;
-  const doneTasks  = stats?.statusDistribution.find((s) => s.status === 'Done')?.count ?? 0;
-  const inProgress = stats?.statusDistribution.find((s) => s.status === 'In Progress')?.count ?? 0;
-  const teamSize   = stats?.assigneeDistribution.length ?? 0;
-  const weekHours  = stats?.completedThisWeekHours ?? 0;
+  const total    = stats?.statusDistribution.reduce((s, x) => s + x.count, 0) ?? 0;
+  const done     = stats?.statusDistribution.find(s => s.status === 'Done')?.count ?? 0;
+  const inProg   = stats?.statusDistribution.find(s => s.status === 'In Progress')?.count ?? 0;
+  const week     = stats?.completedThisWeekHours ?? 0;
+  const team     = stats?.assigneeDistribution.length ?? 0;
+  const donePct  = total > 0 ? Math.round((done / total) * 100) : 0;
+  const maxHours = Math.max(...(stats?.assigneeDistribution.map(a => a.hours) ?? [0]));
 
-  const donutSlices: DonutSlice[] = (stats?.statusDistribution ?? []).map((s) => ({
-    label: s.status,
-    value: s.count,
-    color: STATUS_CONFIG[s.status]?.color ?? '#94a3b8',
-    darkColor: STATUS_CONFIG[s.status]?.color ?? '#94a3b8',
+  const donutSlices = (stats?.statusDistribution ?? []).map(s => ({
+    label: s.status, value: s.count, color: S[s.status]?.hex ?? '#94a3b8',
   }));
 
-  const maxAssigneeHours = Math.max(
-    ...(stats?.assigneeDistribution.map((a) => a.hours) ?? [0])
-  );
+  /* glass card class reused */
+  const glass = 'bg-white/80 dark:bg-[#161b27]/90 backdrop-blur-sm border border-slate-200/80 dark:border-slate-700/40 rounded-2xl shadow-sm';
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors duration-200">
-      <TopBar
-        currentUser={currentUser}
-        issuesFixed={issuesFixed}
-        tasksLoaded={tasksLoaded}
-        triggerToast={triggerToast}
-      />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0d0f14] flex flex-col transition-colors duration-200">
+      <TopBar currentUser={currentUser} issuesFixed={issuesFixed} tasksLoaded={tasksLoaded} triggerToast={toast} />
 
-      <main className="flex-1 w-full px-4 md:px-6 py-8 flex flex-col gap-8">
+      <main className="flex-1 w-full px-4 md:px-8 py-8 flex flex-col gap-8">
 
-        {/* ── Page header ── */}
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r
-            from-violet-500 via-fuchsia-500 to-indigo-500
-            dark:from-violet-400 dark:via-fuchsia-400 dark:to-indigo-400
-            bg-clip-text text-transparent">
-            Analytics Dashboard
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Sprint metrics &amp; team performance at a glance
-          </p>
+        {/* ── Header ── */}
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight
+              bg-gradient-to-r from-violet-600 via-fuchsia-500 to-indigo-500
+              dark:from-violet-400 dark:via-fuchsia-400 dark:to-indigo-400
+              bg-clip-text text-transparent">
+              Analytics
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+              Sprint metrics &amp; team performance
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1.5 rounded-full
+            bg-violet-100 dark:bg-violet-500/15
+            text-violet-700 dark:text-violet-300
+            border border-violet-200 dark:border-violet-500/30">
+            Live data
+          </span>
         </div>
 
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-32 gap-4">
+          <div className="flex-1 flex flex-col items-center justify-center py-40 gap-4">
             <div className="w-12 h-12 rounded-full border-4 border-violet-200 border-t-violet-500 animate-spin" />
             <span className="text-sm font-semibold text-slate-400">Loading analytics…</span>
           </div>
-        ) : stats ? (
-          <>
-            {/* ── Stat cards row ── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard
-                label="Total Tasks"
-                value={totalTasks}
-                gradientFrom="#7c3aed"
-                gradientTo="#4f46e5"
-                icon={
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                }
-              />
-              <StatCard
-                label="Completed"
-                value={doneTasks}
-                gradientFrom="#059669"
-                gradientTo="#0891b2"
-                icon={
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                }
-              />
-              <StatCard
-                label="In Progress"
-                value={inProgress}
-                gradientFrom="#2563eb"
-                gradientTo="#7c3aed"
-                icon={
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                }
-              />
-              <StatCard
-                label="This Week"
-                value={weekHours}
-                suffix="h"
-                gradientFrom="#db2777"
-                gradientTo="#9333ea"
-                icon={
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                }
-              />
-            </div>
+        ) : stats ? (<>
 
-            {/* ── Donut + Status bars ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* ── Stat cards ── */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            <StatCard label="Total Tasks"  value={total}  from="#7c3aed" to="#4f46e5" glow="124,58,237"
+              icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>} />
+            <StatCard label="Completed"   value={done}   from="#059669" to="#0891b2" glow="5,150,105"
+              icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>} />
+            <StatCard label="In Progress" value={inProg} from="#2563eb" to="#7c3aed" glow="37,99,235"
+              icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>} />
+            <StatCard label="This Week"   value={week} suffix="h" from="#db2777" to="#9333ea" glow="219,39,119"
+              icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>} />
+          </div>
 
-              {/* Donut chart card */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
-                rounded-3xl p-6 shadow-sm flex flex-col gap-6">
-                <div>
-                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                    Task Distribution
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Breakdown by current status</p>
-                </div>
+          {/* ── Donut + Status bars ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                <div className="flex flex-col sm:flex-row items-center gap-6">
-                  <DonutChart slices={donutSlices} size={200} />
-
-                  {/* Legend */}
-                  <div className="flex flex-col gap-3 flex-1 w-full">
-                    {stats.statusDistribution.map((item) => {
-                      const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG['Backlog'];
-                      const pct = totalTasks > 0 ? Math.round((item.count / totalTasks) * 100) : 0;
-                      return (
-                        <div key={item.status} className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-3 h-3 rounded-sm shrink-0"
-                              style={{ background: cfg.color }} />
-                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">
-                              {item.status}
-                            </span>
+            {/* Donut */}
+            <div className={`${glass} p-6 flex flex-col gap-5`}>
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Task Distribution</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Hover a slice to inspect</p>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-8">
+                <div className="shrink-0"><Donut slices={donutSlices} size={200} /></div>
+                <div className="flex flex-col gap-3 flex-1 w-full">
+                  {stats.statusDistribution.map(item => {
+                    const cfg = S[item.status] ?? S['Backlog'];
+                    const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+                    return (
+                      <div key={item.status}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cfg.hex }} />
+                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{item.status}</span>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums w-8 text-right">
-                              {pct}%
-                            </span>
-                            <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 tabular-nums w-6 text-right">
-                              {item.count}
-                            </span>
+                          <div className="flex items-center gap-2 tabular-nums">
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 w-8 text-right">{pct}%</span>
+                            <span className="text-sm font-extrabold text-slate-800 dark:text-white w-5 text-right">{item.count}</span>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Status bars card */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
-                rounded-3xl p-6 shadow-sm flex flex-col gap-6">
-                <div>
-                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                    Progress by Status
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Tasks in each pipeline stage</p>
-                </div>
-                <div className="flex flex-col gap-5 justify-center flex-1">
-                  {stats.statusDistribution.map((item) => {
-                    const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG['Backlog'];
-                    return (
-                      <AnimatedBar
-                        key={item.status}
-                        label={item.status}
-                        value={item.count}
-                        max={totalTasks}
-                        color={cfg.color}
-                        gradientFrom={cfg.from}
-                        gradientTo={cfg.to}
-                        sublabel={`of ${totalTasks}`}
-                      />
+                        <Bar pct={pct} from={cfg.from} to={cfg.to} delay={50} />
+                      </div>
                     );
                   })}
                 </div>
               </div>
             </div>
 
-            {/* ── Assignee section ── */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
-              rounded-3xl p-6 shadow-sm">
-              <div className="mb-6">
-                <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                  Hours by Assignee
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Workload distribution across {teamSize} team member{teamSize !== 1 ? 's' : ''}
-                </p>
+            {/* Completion ring banner */}
+            <div className="rounded-2xl p-6 text-white relative overflow-hidden flex flex-col justify-between gap-6"
+              style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 45%,#2563eb 100%)', boxShadow: '0 8px 40px -8px rgba(124,58,237,.5)' }}>
+              {/* blobs */}
+              <div className="absolute -top-10 -right-10 w-52 h-52 rounded-full opacity-10 bg-white" />
+              <div className="absolute -bottom-16 -left-8  w-44 h-44 rounded-full opacity-10 bg-white" />
+              <div className="absolute top-1/2 left-1/2 w-96 h-96 rounded-full opacity-5 bg-white -translate-x-1/2 -translate-y-1/2" />
+
+              <div className="relative">
+                <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Sprint Completion</p>
+                <p className="text-6xl font-black leading-none">{donePct}<span className="text-2xl font-semibold opacity-60 ml-1">%</span></p>
+                <p className="text-sm opacity-60 mt-2">{done} of {total} tasks · {week}h this week</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-                {stats.assigneeDistribution.map((item, idx) => {
-                  const grad = ASSIGNEE_GRADIENTS[idx % ASSIGNEE_GRADIENTS.length];
-                  return (
-                    <div key={item.assignee}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <img
-                            src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(item.assignee)}`}
-                            alt={item.assignee}
-                            className="w-7 h-7 rounded-full border-2 border-slate-100 dark:border-slate-800 shrink-0"
-                          />
-                          <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                            {item.assignee}
-                          </span>
-                        </div>
-                        <span className="text-sm font-extrabold tabular-nums"
-                          style={{ color: grad.from }}>
-                          {item.hours}h
-                        </span>
-                      </div>
-                      <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <AssigneeBar hours={item.hours} max={maxAssigneeHours} from={grad.from} to={grad.to} />
-                      </div>
+              <div className="relative flex items-end justify-between gap-4 flex-wrap">
+                {/* mini stat pills */}
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { label: 'Done',    val: done,   color: '#10b981' },
+                    { label: 'Active',  val: inProg, color: '#3b82f6' },
+                    { label: 'Team',    val: team,   color: '#a78bfa' },
+                  ].map(p => (
+                    <div key={p.label} className="px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20">
+                      <p className="text-[10px] font-bold uppercase opacity-70">{p.label}</p>
+                      <p className="text-lg font-black leading-none" style={{ color: p.color }}>{p.val}</p>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+                <Ring pct={donePct} size={90} />
               </div>
             </div>
+          </div>
 
-            {/* ── Completion rate banner ── */}
-            <div className="rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden"
-              style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 50%, #2563eb 100%)' }}>
-              {/* decorative blobs */}
-              <div className="absolute top-0 right-0 w-64 h-64 rounded-full opacity-10 translate-x-16 -translate-y-16"
-                style={{ background: 'white' }} />
-              <div className="absolute bottom-0 left-0 w-40 h-40 rounded-full opacity-10 -translate-x-10 translate-y-10"
-                style={{ background: 'white' }} />
-
-              <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center
-                justify-between gap-6">
-                <div>
-                  <p className="text-sm font-bold uppercase tracking-widest opacity-80 mb-1">
-                    Sprint Completion Rate
-                  </p>
-                  <p className="text-5xl font-extrabold leading-none">
-                    {totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0}
-                    <span className="text-2xl font-semibold opacity-70 ml-1">%</span>
-                  </p>
-                  <p className="text-sm opacity-70 mt-2">
-                    {doneTasks} of {totalTasks} tasks completed · {weekHours}h done this week
-                  </p>
-                </div>
-
-                {/* mini progress ring */}
-                <div className="shrink-0">
-                  <svg width={100} height={100}>
-                    <circle cx={50} cy={50} r={40} fill="none"
-                      stroke="rgba(255,255,255,0.2)" strokeWidth={10} />
-                    <circle cx={50} cy={50} r={40} fill="none"
-                      stroke="white" strokeWidth={10}
-                      strokeLinecap="round"
-                      strokeDasharray={`${2 * Math.PI * 40}`}
-                      strokeDashoffset={`${2 * Math.PI * 40 * (1 - (totalTasks > 0 ? doneTasks / totalTasks : 0))}`}
-                      transform="rotate(-90 50 50)"
-                      style={{ transition: 'stroke-dashoffset 1.2s ease' }}
-                    />
-                    <text x={50} y={54} textAnchor="middle"
-                      style={{ fontSize: 16, fontWeight: 800, fill: 'white' }}>
-                      {doneTasks}/{totalTasks}
-                    </text>
-                  </svg>
-                </div>
+          {/* ── Assignee workload ── */}
+          <div className={`${glass} p-6`}>
+            <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Team Workload</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Hours per assignee</p>
               </div>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full
+                bg-slate-100 dark:bg-slate-700/60
+                text-slate-600 dark:text-slate-300
+                border border-slate-200 dark:border-slate-600/50">
+                {team} members
+              </span>
             </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center py-32 text-slate-400">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-5">
+              {stats.assigneeDistribution.map((a, i) => {
+                const g = AG[i % AG.length];
+                const pct = maxHours > 0 ? Math.round((a.hours / maxHours) * 100) : 0;
+                return (
+                  <div key={a.assignee}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(a.assignee)}`}
+                          alt={a.assignee}
+                          className="w-8 h-8 rounded-full border-2 shrink-0"
+                          style={{ borderColor: g.from + '66' }}
+                        />
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{a.assignee}</span>
+                      </div>
+                      <span className="text-sm font-extrabold tabular-nums" style={{ color: g.from }}>{a.hours}h</span>
+                    </div>
+                    <Bar pct={pct} from={g.from} to={g.to} delay={i * 60} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Status breakdown table ── */}
+          <div className={`${glass} p-6`}>
+            <h3 className="text-base font-bold text-slate-800 dark:text-white mb-4">Pipeline Breakdown</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-700/40">
+                    {['Status', 'Tasks', 'Share', 'Progress'].map(h => (
+                      <th key={h} className="pb-3 text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pr-6">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/30">
+                  {stats.statusDistribution.map(item => {
+                    const cfg = S[item.status] ?? S['Backlog'];
+                    const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+                    return (
+                      <tr key={item.status} className="group">
+                        <td className="py-3 pr-6">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cfg.hex }} />
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">{item.status}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-6 font-extrabold text-slate-800 dark:text-white tabular-nums">{item.count}</td>
+                        <td className="py-3 pr-6">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold"
+                            style={{ background: cfg.hex + '22', color: cfg.hex }}>
+                            {pct}%
+                          </span>
+                        </td>
+                        <td className="py-3 w-40">
+                          <Bar pct={pct} from={cfg.from} to={cfg.to} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </>) : (
+          <div className="flex-1 flex items-center justify-center py-40 text-slate-400">
             <span className="text-sm font-semibold">No stats available</span>
           </div>
         )}
       </main>
 
-      <ToastContainer toasts={toasts} onClose={handleCloseToast} />
+      <ToastContainer toasts={toasts} onClose={id => setToasts(p => p.filter(t => t.id !== id))} />
     </div>
-  );
-}
-
-/* Separate component so it can animate on mount */
-function AssigneeBar({ hours, max, from, to }: { hours: number; max: number; from: string; to: string }) {
-  const [width, setWidth] = useState(0);
-  const pct = max > 0 ? (hours / max) * 100 : 0;
-  useEffect(() => {
-    const t = setTimeout(() => setWidth(pct), 150);
-    return () => clearTimeout(t);
-  }, [pct]);
-  return (
-    <div
-      className="h-full rounded-full transition-all duration-700 ease-out"
-      style={{ width: `${width}%`, background: `linear-gradient(90deg, ${from}, ${to})` }}
-    />
   );
 }
