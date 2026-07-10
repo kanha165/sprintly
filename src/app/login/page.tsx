@@ -39,7 +39,17 @@ export default function LoginPage() {
       // Successful auth -> Redirect to board page
       window.location.href = '/board';
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      console.error('Auth error:', err);
+      
+      // Provide user-friendly error messages
+      let errorMessage = err.message || 'Authentication failed';
+      
+      // Handle network/fetch errors
+      if (err.message?.includes('fetch') || err.name === 'TypeError') {
+        errorMessage = 'Unable to connect to server. Please check if Supabase is configured correctly. See browser console for details.';
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };
