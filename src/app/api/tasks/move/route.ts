@@ -46,17 +46,20 @@ export const PATCH = guard(async (req: NextRequest) => {
     }
   }
 
-  // 4. Enforce server-side WIP limits
+  // 4. Enforce server-side WIP limits — only when moving INTO a different column.
+  //    Exclude the task being moved itself from the count (it already occupies a
+  //    slot in its current column, so a same-column reorder must never be blocked).
   if (fromStatus !== toStatus) {
     if (toStatus === 'In Progress') {
       const { count, error: countErr } = await supabase
         .from('tasks')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'In Progress');
+        .eq('status', 'In Progress')
+        .neq('id', taskId);
 
       if (countErr) return fail(500, 'WIP limit check failed');
-      if ((count || 0) >= 5) {
-        return fail(409, 'WIP Limit Exceeded: In Progress column is full (max 5)');
+      if ((count ?? 0) >= 8) {
+        return fail(409, 'WIP Limit Exceeded: In Progress column is full (max 8)');
       }
     }
 
@@ -64,11 +67,12 @@ export const PATCH = guard(async (req: NextRequest) => {
       const { count, error: countErr } = await supabase
         .from('tasks')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'Review');
+        .eq('status', 'Review')
+        .neq('id', taskId);
 
       if (countErr) return fail(500, 'WIP limit check failed');
-      if ((count || 0) >= 3) {
-        return fail(409, 'WIP Limit Exceeded: Review column is full (max 3)');
+      if ((count ?? 0) >= 6) {
+        return fail(409, 'WIP Limit Exceeded: Review column is full (max 6)');
       }
     }
   }
@@ -112,26 +116,30 @@ export const PATCH = guard(async (req: NextRequest) => {
     t.position = index;
   });
 
-  // Prepare database updates list
-  const updates: Partial<Task>[] = [];
-  
-  // Tasks to update in source column (if different)
+  // Prepare database updates — must include ALL non-nullable columns because
+  // Supabase upsert inserts a new row if id is not found, and NOT NULL columns
+  // like title would fail. We merge updated position/status onto the full task object.
+  const allTasksById = new Map(typedTasks.map(t => [t.id, t]));
+  // Also include the moved task itself (already updated above)
+  allTasksById.set(updatedTask.id, updatedTask);
+
+  const updates: Task[] = [];
+
   if (fromStatus !== toStatus) {
     sourceCol.forEach(t => {
-      updates.push({ id: t.id, status: fromStatus, position: t.position, completed_date: t.completed_date });
+      const full = allTasksById.get(t.id);
+      if (full) updates.push({ ...full, position: t.position });
     });
   }
 
-  // Tasks to update in target column
   destCol.forEach(t => {
-    updates.push({ id: t.id, status: toStatus, position: t.position, completed_date: t.completed_date });
+    const full = allTasksById.get(t.id);
+    if (full) updates.push({ ...full, position: t.position, status: toStatus });
   });
 
-  // Run update operations sequentially or via Promise.all
-  // Supabase insert with upsert makes bulk updating position columns easy
   const { error: upsertErr } = await supabase
     .from('tasks')
-    .upsert(updates, { onConflict: 'id' });
+    .upsert(updates as Task[], { onConflict: 'id' });
 
   if (upsertErr) {
     return fail(500, 'Database position updates failed: ' + upsertErr.message);
